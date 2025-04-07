@@ -1,5 +1,10 @@
+use std::str;
 use super::{hmm_model::HmmMotif, Hmm};
 use itertools::Itertools;
+use bio::io::fasta;
+use std::fs::File;
+use std::io::{Write};
+use crate::hmm::spans::Span;
 
 pub fn build_hmm(motifs: &[Vec<u8>]) -> Hmm {
     // 2 terminal states + 2 run start states + 3 states of the skip block + (4n - 1) states for each motif of length n
@@ -182,6 +187,45 @@ fn get_match_emissions(base: u8) -> Vec<f64> {
         _ => panic!("Encountered unknown base {}", base as char),
     }
 }
+fn summarize(spans: &[Span]) -> Vec<(usize, usize, usize)> {
+    let mut summary = Vec::new();
+    for (motif_index, group) in &spans
+        .iter()
+        .map(|s| (s.start, s.end, s.motif_index))
+        .group_by(|(_s, _e, m)| *m)
+    {
+        let group = group.collect_vec();
+        summary.push((
+            group.first().unwrap().0,
+            group.last().unwrap().1,
+            motif_index,
+        ));
+    }
+    summary
+}
+
+pub fn parse_SVA_repeat_file(seq_file: &str, out_file: &str) {
+    let motifs = vec![
+        "CCCTCT".as_bytes().to_vec(), 
+        "GCCTCTGCCCGGCCGCCCAGTCTGGGAAGTGAGGAGC".as_bytes().to_vec(),
+        "GCCCGGCCAGCCGCCCCGTCCGGGAGGAGGTGGGGGGGTCAGCCCCC".as_bytes().to_vec(),
+        "GCCGCCCCGACCGGGAAGTGAGGAGCCCCTCTGCCCG".as_bytes().to_vec()
+    ];
+    let hmm = build_hmm(&motifs);
+
+    let mut outf = File::create(out_file).unwrap();
+    let mut reader = fasta::Reader::from_file(seq_file).unwrap();
+    let mut i = 0;
+    for result in reader.records() {
+        print!("Record {}\r", i);
+        let record = result.expect("Error during fasta parsing");
+        let query = str::from_utf8(record.seq()).unwrap().to_uppercase();
+        let labels = hmm.label_motifs(&hmm.label(&query));
+        writeln!(outf, "{}: {:?}", record.id(), summarize(&labels)).unwrap();
+        i += 1;
+    }
+
+}
 
 #[cfg(test)]
 mod tests {
@@ -234,12 +278,35 @@ mod tests {
 
         assert_eq!(summarize(&labels), expected);
     }
+    #[test]
+    fn test234() {
+        let motifs = vec!["CTG".as_bytes().to_vec()];
+        let hmm = build_hmm(&motifs);
+        // println!("{:?}", hmm);
+        let query = "CTGCGCTGCTGCTGCGTACGATCGTAGCCGTATGCTGCTGCTGCTG";
+        let labels = hmm.label_motifs(&hmm.label(query));
+        println!("{:?}", summarize(&labels));
+        assert!(true);
+    }
+    #[test]
+    fn test1234() {
+        let motifs = vec!["CT".as_bytes().to_vec(), "AG".as_bytes().to_vec()];
+        let hmm = build_hmm(&motifs);
+        // println!("{:?}", hmm);
+        //
+        // let query = ""
+        let query = "CTCTCACTCTCTTGACACTGACCTGTTAGAGAGAGAGCTCTCT";
+        let labels = hmm.label_motifs(&hmm.label(query));
+        println!("{:?}", summarize(&labels));
+        assert!(true);
+    }
 
     #[test]
     fn parse_aga_repeat() {
         // TODO: Consider improving this segmentation
         let motifs = vec!["AAG".as_bytes().to_vec(), "CAAC".as_bytes().to_vec()];
         let hmm = build_hmm(&motifs);
+        println!("{:?}", hmm);
         let query = "TCTATGCAACCAACTTTCTGTTAGTCATAGTACCCCAAGAAGAAGAAGAAGAAGAAGAAGAAGAAGAAGAAGAAGAAGAAGAAGAAGAAGAAGAATAGAAATGTGTTTAAGAATTCCTCAATAAG";
         let labels = hmm.label_motifs(&hmm.label(query));
         let expected = vec![
@@ -252,5 +319,37 @@ mod tests {
         ];
 
         assert_eq!(summarize(&labels), expected);
+    }
+    #[test]
+    fn parse_SVA_repeat() {
+        let motifs = vec!["CCCTCT".as_bytes().to_vec(), "GCCTCTGCCCGGCCGCCCAGTCTGGGAAGTGAGGAGC".as_bytes().to_vec(), "GCCCGGCCAGCCGCCCCGTCCGGGAGGAGGTGGGGGGGTCAGCCCCC".as_bytes().to_vec(), "GCCGCCCCGACCGGGAAGTGAGGAGCCCCTCTGCCCG".as_bytes().to_vec()];
+        let hmm = build_hmm(&motifs);
+        let query="CTCTCCCTCTCCCTCTCCCTCTCCCTCTCCCTCTCCCTCTCCCTCTCCCCTCTTTCCACGGTCTCCCTCTCATGCGGAGCCGAAGCTGGACTGTACTGCTGCCATCTCGGCTCACTGCAACCTCCCTGCCTGATTCTCCTGCCTCAGCCTGCCGAGTGCCTGCGATTGCAGGCACGCGCCGCCACGCCTGACTGGTTTTGGTGGAGACGGGGTTTCGCTGTGTTGGCCGGGCCGGTCTCCAGCCCCTAACCGCGAGTGATCCGCCAGCCTCGGCCTCCCGAGGTGCCGGGATTGCAGACGGAGTCTCGTTCACTCAGTGCTCAATGGTGCCCAGGCTGGAGTGCAGTGGCGTGATCTCGGCTCGCTACAACCTACACCTCCCAGCCGCCTGCCTTGGCCTCCCAAAGTGCCGAGATTGCAGCCTCTGCCCGGCCGCCGCCCCGTCTGGGAGGTGAGGAGCGCCTCTGCCCGGCCGCCCATCGTCTGGGATGTGAGGAGCCCCTCTGCCCGGCCGCCCCGTCTGGGAGGTGAGGAGCGCCTCCGCCCGGCCGCCGCCCCGTCCGGGAGGTGAGGAGCGTCTCCGCCCGGCCGCCCGCCGTCCGGGATGTGAGGAGCGCCTCCGCCCGGCCGCCCCGTCCGGGATGTGAGGAGCGCCTCCGCCCGGCCAGCCGCCCCGTCCGGGAGGTGGGGGGGTCAGCCCCCCGCCCGGCCAGCCGCCCCGTCCGGGAGGAGGTGGGGGGGTCAGCCCCCCGCCCGGCCAGCCGCCCCGTCCGGGAGGTGAGGGGCGCCTCTGCCCGGCCGCCCCTACTGGGAAGTGAGGAGCCCCTCTGCCCGGCCACCGCCCCGTCCGGGAGGTGTGCCCAACAGCTCATTGAGAACGGGCCAGGATGACAATGGCGGCTTTGTGGAATAGAAAGGCGGGAAAGGTGGGGAAAAGATTGAGAAATCGGATGGTTGCCGTGTCTGTGTAGAAAGAAGTAGACATGGGAGACTTTTCATTTTGTTCTGCACTAAGAAAAATTCCTCTGCCTTGGGATCCTGTTGATCTGTGACCTTACCCCCAACCCTGTGCTCTCTGAAACATGTGCTGTGTCCACTCAGGGTTAAATGGATTAAGGGCGGTGCAAGATGTGCTTTGTTAAACAGATGCTTGAAGGCAGCATGCTCGTTAAGAGTCATCACCAATCCCTAATCTCAAGTAATCAGGGACACAAACACTGCGGAAGGCCGCAGGGTCCTCTGCCTAGGAAAACCAGAGACCTTTGTTCACTTGTTTATCTGCTGACCTTCCCTCCACTATTGTCCCATGACCCTGCCAAATCCCCCTCTGTGAGAAACACCCAAGAATTATCAAT";
+        let labels= hmm.label_motifs(&hmm.label(query));
+        println!("{:?}", summarize(&labels));
+        assert!(true);
+    }
+    #[test]
+    fn parse_SVA_repeats() {
+        let seq_file = "/home/aly16/proj/sva_internal_var/results/msa_test/seqs_rc.fa";
+        let out_file = "hmmered_svas.txt";
+        parse_SVA_repeat_file(seq_file, out_file);
+        assert!(true);
+    }
+
+    #[test]
+    fn parse_SVA_repeats_PALMER() {
+        let seq_file = "/home/aly16/proj/sva_internal_var/data/PALMER_SVAs_3trios.fa";
+        let out_file = "PALMER_SVA_3trios_hmmered.txt";
+        parse_SVA_repeat_file(seq_file, out_file);
+        assert!(true);
+    }
+
+    #[test]
+    fn parse_SVA_repeats_PALMER_rc() {
+        let seq_file = "/home/aly16/proj/sva_internal_var/data/PALMER_SVAs_3_trios_rc.fa";
+        let out_file = "PALMER_SVA_3trios_rc_hmmered.txt";
+        parse_SVA_repeat_file(seq_file, out_file);
+        assert!(true);
     }
 }

@@ -98,6 +98,7 @@ impl Hmm {
 
     fn generate_mats(&self, query: &[u8]) -> (Vec<Vec<f64>>, Vec<Vec<Option<usize>>>) {
         let ordered_states = self.order_states();
+        // println!("{:?}", ordered_states);
         let mut scores = vec![vec![f64::NEG_INFINITY; query.len()]; self.num_states];
         let mut states = vec![vec![None; query.len()]; self.num_states];
 
@@ -151,7 +152,11 @@ impl Hmm {
             .map(encode_base)
             .collect_vec();
 
+        // println!("{:?}", query);
+
         let (_scores, states) = self.generate_mats(&query);
+        // println!("{:?}", _scores);
+        // println!("{:?}", states);
         self.traceback(&query, &states)
     }
 

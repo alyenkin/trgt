@@ -1,4 +1,4 @@
-mod builder;
+pub mod builder;
 mod events;
 pub mod hmm_model;
 mod purity;
